@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
+const { refreshAccessToken, netatmoGet } = require('./netatmo-api');
 module.exports = function(RED)
 {
     "use strict";
@@ -22,44 +23,32 @@ module.exports = function(RED)
         RED.nodes.createNode(this,config);
         this.creds = RED.nodes.getNode(config.creds);
         var node = this;
-        this.on('input', function(msg) {
+this.on('input', async function(msg, send, done) {
+            send = send || function () { node.send.apply(node, arguments) };
+            done = done || function (error) { node.error.call(node, error, msg) };
+
             this.homeId = msg.homeId || config.homeId || '';
             this.gatewayTypes = msg.gatewayTypes || config.gatewayTypes || '';
-			
-            const netatmo = require('netatmo');
 
-            const auth = {
-                "client_id": this.creds.credentials.client_id,
-                "client_secret": this.creds.credentials.client_secret,
-                "username": this.creds.credentials.username, 
-                "password": this.creds.credentials.password
-            };
-            const api = new netatmo(auth);
-            
-            api.on("error", function(error) {
-                node.error(error);
-            });
+            const { client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken } = node.creds.credentials;
 
-            api.on("warning", function(error) {
-                node.warn(error);
-            });                 
-            
-            var options = {
-            };
-
-            // Optional
+            var options = {};
             if (this.homeId !== '') {
                 options.home_id = this.homeId;
             }
-
             if (this.gatewayTypes !== '') {
                 options.gateway_types = this.gatewayTypes;
             }
-			
-            api.homesData(options,function(err, body) {
+
+            try {
+                const accessToken = await refreshAccessToken({ clientId, clientSecret, refreshToken });
+                const body = await netatmoGet(accessToken, 'homesdata', options);
                 msg.payload = body;
-                node.send(msg);
-            });
+                send(msg);
+                done();
+            } catch (e) {
+                done(e);
+            }
         });
 
     }

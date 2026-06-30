@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
+const { refreshAccessToken, netatmoGet } = require('./netatmo-api');
 module.exports = function(RED)
 {
 	"use strict";
@@ -23,44 +24,32 @@ module.exports = function(RED)
         // Retrieve the config node
         this.creds = RED.nodes.getNode(config.creds);
         const node = this;
-        this.on('input', function(msg) {
+        this.on('input', async function(msg, send, done) {
+            send = send || function () { node.send.apply(node, arguments) };
+            done = done || function (error) { node.error.call(node, error, msg) };
+
             this.deviceId = msg.deviceId || config.deviceId || '';
             this.getFavorites = msg.getFavorites || config.getFavorites || false;
 
-            const netatmo = require('netatmo');
+            const { client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken } = node.creds.credentials;
 
-            const auth = {
-                "client_id": this.creds.credentials.client_id,
-                "client_secret": this.creds.credentials.client_secret,
-                "username": this.creds.credentials.username, 
-                "password": this.creds.credentials.password
-            };
-            const api = new netatmo(auth);
-            
-            api.on("error", function(error) {
-                node.error(error);
-            });
-
-            api.on("warning", function(error) {
-                node.warn(error);
-            });                 
-            
-            var options = {
-            };
-
-            // Optional
-            if (this.deviceId !== ''){
+            var options = {};
+            if (this.deviceId !== '') {
                 options.device_id = this.deviceId;
             }
-
-            if (this.getFavorites !== false){
+            if (this.getFavorites !== false) {
                 options.get_favorites = this.getFavorites;
             }
- 
-            api.getStationsData(options,function(err, devices) {
-                msg.payload = {devices:devices};
-                node.send(msg);
-            });
+
+            try {
+                const accessToken = await refreshAccessToken({ clientId, clientSecret, refreshToken });
+                const devices = await netatmoGet(accessToken, 'getstationsdata', options);
+                msg.payload = { devices: devices };
+                send(msg);
+                done();
+            } catch (e) {
+                done(e);
+            }
         });
 
     }

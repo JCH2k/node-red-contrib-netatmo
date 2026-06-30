@@ -14,57 +14,7 @@
  * limitations under the License.
  **/
 const mustache = require('mustache');
-const fetch = require('node-fetch');
-const httpTransport = require('https');
-
-const callRefreshToken = ({ clientId, clientSecret, refreshToken }) => {
-    return new Promise((resolve, reject) => {
-  
-      const responseEncoding = 'utf8';
-      const httpOptions = {
-        hostname: 'api.netatmo.com',
-        port: '443',
-        path: '/oauth2/token',
-        method: 'POST',
-        headers: { "Content-Type": "application/x-www-form-urlencoded" }
-      };
-      httpOptions.headers['User-Agent'] = 'node ' + process.version;
-  
-      const request = httpTransport.request(httpOptions, (res) => {
-        let responseBufs = [];
-        let responseStr = '';
-  
-        res.on('data', (chunk) => {
-          if (Buffer.isBuffer(chunk)) {
-            responseBufs.push(chunk);
-          }
-          else {
-            responseStr = responseStr + chunk;
-          }
-        }).on('end', () => {
-          responseStr = responseBufs.length > 0 ? Buffer.concat(responseBufs).toString(responseEncoding) : responseStr;
-          if (res.statusCode === 200) {
-            let json;
-            try {
-              json = JSON.parse(responseStr);
-              resolve(json.access_token);
-            } catch (e) {
-              reject(e);
-            }
-          } else {
-            reject('Unable to refresh the access token. Status: '+ res.statusCode + ', URI: '+ uri);
-          }
-        });
-      })
-        .setTimeout(0)
-        .on('error', (error) => {
-          callback(error);
-        });
-      let uri = `grant_type=refresh_token&refresh_token=${encodeURI(refreshToken)}&client_id=${clientId}&client_secret=${clientSecret}`
-      request.write(uri);
-      request.end();
-    });
-  };
+const { refreshAccessToken, netatmoGet } = require('./netatmo-api');
 
 module.exports = function(RED)
 {
@@ -128,24 +78,14 @@ module.exports = function(RED)
             //     node.send(msg);
             // });
 
-            let data;
             try {
-                // for some reason the same request with node-fetch is not working
-                const refreshedToken = await callRefreshToken({ clientSecret, clientId, refreshToken });;
-
-                // Get Station data (GET https://api.netatmo.com/api/getstationsdata?get_favorites=false)
-                const response = await fetch("https://api.netatmo.com/api/getpublicdata?" + new URLSearchParams(options), {
-                    method: 'GET',
-                    headers: {
-                        Authorization: `Bearer ${refreshedToken}`
-                    }
-                });
-                data = await response.json();
+                const accessToken = await refreshAccessToken({ clientId, clientSecret, refreshToken });
+                const data = await netatmoGet(accessToken, 'getpublicdata', options);
                 msg.payload = data;
-                node.send(msg);
+                send(msg);
+                done();
             } catch (e) {
                 done(e);
-                return;
             }
 
         });

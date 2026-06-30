@@ -16,7 +16,6 @@
   "dependencies": {
     "mustache": "2.2.1",
     "node-fetch": "^2.6.7",
-    "netatmo": "git+http://github.com/floetenbaer/netatmo.git"
   },
   "version": "0.3.1",
   "keywords": [

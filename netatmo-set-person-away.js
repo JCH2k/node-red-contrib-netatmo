@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
+const { refreshAccessToken, netatmoPost } = require('./netatmo-api');
 module.exports = function(RED)
 {
     "use strict";
@@ -23,50 +24,33 @@ module.exports = function(RED)
         this.homeId = config.homeId || config.home_id || '';
         this.personId = config.personId || config.person_id || '';
         var node = this;
-        this.on('input', function (msg) {
-            const netatmo = require('netatmo');
+        this.on('input', async function (msg, send, done) {
+            send = send || function () { node.send.apply(node, arguments) };
+            done = done || function (error) { node.error.call(node, error, msg) };
 
-            const auth = {
-                "client_id": this.creds.credentials.client_id,
-                "client_secret": this.creds.credentials.client_secret,
-                "username": this.creds.credentials.username, 
-                "password": this.creds.credentials.password
-            };
-            const api = new netatmo(auth);
+            const { client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken } = node.creds.credentials;
+
             var options = {
                 home_id: node.homeId,
                 person_id: node.personId
             };
 
             if (msg && msg.payload) {
-                // use home id from msg payload
-                if (msg.payload.home_id) {
-                    options.home_id = msg.payload.home_id;
-                }
-                if (msg.payload.homeId) {
-                    options.home_id = msg.payload.homeId;
-                }
-                // use person_id id from msg payload
-                if (msg.payload.person_id) {
-                    options.person_id = msg.payload.person_id;
-                }
-                if (msg.payload.personId) {
-                    options.person_id = msg.payload.personId;
-                }
+                if (msg.payload.home_id) { options.home_id = msg.payload.home_id; }
+                if (msg.payload.homeId) { options.home_id = msg.payload.homeId; }
+                if (msg.payload.person_id) { options.person_id = msg.payload.person_id; }
+                if (msg.payload.personId) { options.person_id = msg.payload.personId; }
             }
 
-            api.on("error", function (error) {
-                node.error(error);
-            });
-
-            api.on("warning", function (error) {
-                node.warn(error);
-            });
-
-            api.setPersonAway(options, function (err, events) {
-                msg.payload = events;
-                node.send(msg);
-            });
+            try {
+                const accessToken = await refreshAccessToken({ clientId, clientSecret, refreshToken });
+                const result = await netatmoPost(accessToken, 'setpersonaway', options);
+                msg.payload = result;
+                send(msg);
+                done();
+            } catch (e) {
+                done(e);
+            }
         });
     }
     RED.nodes.registerType("set person away",NetatmoSetPersonAway);

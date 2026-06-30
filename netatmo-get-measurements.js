@@ -14,6 +14,7 @@
  * limitations under the License.
  **/
  const mustache = require('mustache');
+ const { refreshAccessToken, netatmoGet } = require('./netatmo-api');
  module.exports = function(RED)
  {
      "use strict";
@@ -23,7 +24,10 @@
         RED.nodes.createNode(this,config);
         this.creds = RED.nodes.getNode(config.creds);
         var node = this;
-        this.on('input', function(msg) {
+        this.on('input', async function(msg, send, done) {
+            send = send || function () { node.send.apply(node, arguments) };
+            done = done || function (error) { node.error.call(node, error, msg) };
+
             config.beginDate = msg.beginDate || config.beginDate || '';
             config.endDate = msg.endDate || config.endDate || '';
             config.limit = config.limit || '';
@@ -38,46 +42,35 @@
             this.moduleId = mustache.render(config.moduleId, msg);
             this.deviceId = mustache.render(config.deviceId, msg);
 
-            const netatmo = require('netatmo');
+            const { client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken } = node.creds.credentials;
 
-            const auth = {
-                "client_id": this.creds.credentials.client_id,
-                "client_secret": this.creds.credentials.client_secret,
-                "username": this.creds.credentials.username, 
-                "password": this.creds.credentials.password
-            };
-            const api = new netatmo(auth);
-            
-            api.on("error", function(error) {
-                node.error(error);
-            });
-
-            api.on("warning", function(error) {
-                node.warn(error);
-            });                 
-            
             var options = {
                 device_id: this.deviceId,
                 scale: this.scale,
                 type: this.types
             };
-            if ((this.beginDate !== '')&&(this.beginDate !== null)){
+            if ((this.beginDate !== '') && (this.beginDate !== null)) {
                 options.date_begin = JSON.parse(this.beginDate);
             }
-            if ((this.endDate !== '')&&(this.endDate !== null)){
+            if ((this.endDate !== '') && (this.endDate !== null)) {
                 options.date_end = (this.endDate === 'last' ? 'last' : JSON.parse(this.endDate));
             }
-            if ((this.limit !== '')&&(this.limit !== null)){
+            if ((this.limit !== '') && (this.limit !== null)) {
                 options.limit = JSON.parse(this.limit);
             }
-            if ((this.moduleId !== '')&&(this.moduleId !== null)){
+            if ((this.moduleId !== '') && (this.moduleId !== null)) {
                 options.module_id = this.moduleId;
             }
 
-            api.getMeasure(options,function(err, measure) {
+            try {
+                const accessToken = await refreshAccessToken({ clientId, clientSecret, refreshToken });
+                const measure = await netatmoGet(accessToken, 'getmeasure', options);
                 msg.payload = measure;
-                node.send(msg);
-            });
+                send(msg);
+                done();
+            } catch (e) {
+                done(e);
+            }
         });
     }
 
